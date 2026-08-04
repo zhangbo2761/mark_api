@@ -5,6 +5,9 @@ import base64
 import requests
 
 app = Flask(__name__)
+@app.route('/')
+def home():
+    return "API is running!"
 
 @app.route('/mark', methods=['POST'])
 def mark_image():
