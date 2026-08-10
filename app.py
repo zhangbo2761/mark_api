@@ -11,7 +11,11 @@ def mark():
     marks = data.get('marks', [])
     if not image_url:
         return jsonify({'error': 'no image_url'}), 400
-    resp = requests.get(image_url, timeout=10)
+    # 如果 Dify 传来的是 {{...}} 这种格式，或者链接是空的，直接报错返回，不再让程序崩溃
+if not image_url or "{{" in image_url:
+    return {"error": "未接收到有效的图片链接，请确保Dify预览时已上传图片"}, 400
+
+resp = requests.get(image_url, timeout=10)
     img = Image.open(io.BytesIO(resp.content))
     draw = ImageDraw.Draw(img)
     w, h = img.size
