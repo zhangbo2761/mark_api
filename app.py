@@ -1,15 +1,19 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from PIL import Image, ImageDraw
 import io
-import base64
+import os
+import json
+import uuid
 import requests
 import traceback
 
 app = Flask(__name__)
 
-# ---------------------------------------------------------
-# 首页
-# ---------------------------------------------------------
+# Render 临时目录
+IMAGE_DIR = "/tmp/marked_images"
+os.makedirs(IMAGE_DIR, exist_ok=True)
+
+
 @app.route("/", methods=["GET"])
 def home():
     return jsonify({
@@ -20,11 +24,24 @@ def home():
 
 
 # ---------------------------------------------------------
-# 图片标注接口
+# 提供批改后的图片
+# ---------------------------------------------------------
+@app.route("/images/<filename>", methods=["GET"])
+def get_image(filename):
+    return send_from_directory(
+        IMAGE_DIR,
+        filename
+    )
+
+
+# ---------------------------------------------------------
+# 图片批改
 # ---------------------------------------------------------
 @app.route("/mark", methods=["POST"])
 def mark_image():
+
     try:
+
         # -------------------------------------------------
         # 1. 获取 JSON
         # -------------------------------------------------
@@ -32,37 +49,32 @@ def mark_image():
 
         if not data:
             return jsonify({
-                "error": "Invalid JSON",
-                "received": request.data.decode("utf-8", errors="ignore")
+                "success": False,
+                "error": "Invalid JSON"
             }), 400
 
         # -------------------------------------------------
-        # 2. 获取图片 URL
+        # 2. 图片 URL
         # -------------------------------------------------
         image_url = data.get("image_url")
 
         if not image_url or not isinstance(image_url, str):
             return jsonify({
-                "error": "未接收到有效的图片链接",
-                "received_image_url": str(image_url)
+                "success": False,
+                "error": "未接收到有效的图片链接"
             }), 400
 
         # -------------------------------------------------
-        # 3. 获取 marks
+        # 3. marks
         # -------------------------------------------------
         marks = data.get("marks", [])
 
-        # 如果 Dify 传过来的是字符串，尝试解析
         if isinstance(marks, str):
-            import json
 
             try:
                 marks = json.loads(marks)
             except Exception:
-                return jsonify({
-                    "error": "marks 不是有效 JSON",
-                    "marks_received": marks
-                }), 400
+                marks = []
 
         if not isinstance(marks, list):
             marks = []
@@ -72,9 +84,9 @@ def mark_image():
         # -------------------------------------------------
         headers = {
             "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "Mozilla/5.0 "
+                "(Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 "
-                "(KHTML, like Gecko) "
                 "Chrome/130.0 Safari/537.36"
             )
         }
@@ -88,37 +100,24 @@ def mark_image():
 
         if resp.status_code != 200:
             return jsonify({
+                "success": False,
                 "error": "图片下载失败",
-                "status": resp.status_code,
-                "url": image_url
-            }), 400
-
-        if not resp.content:
-            return jsonify({
-                "error": "下载到的图片内容为空"
+                "status": resp.status_code
             }), 400
 
         # -------------------------------------------------
         # 5. 打开图片
         # -------------------------------------------------
-        try:
-            img = Image.open(io.BytesIO(resp.content))
-            img.load()
-            img = img.convert("RGB")
-        except Exception as e:
-            return jsonify({
-                "error": "无法解析图片",
-                "detail": str(e),
-                "content_type": resp.headers.get("Content-Type"),
-                "content_length": len(resp.content)
-            }), 400
+        img = Image.open(
+            io.BytesIO(resp.content)
+        ).convert("RGB")
 
         draw = ImageDraw.Draw(img)
 
         w, h = img.size
 
         # -------------------------------------------------
-        # 6. 处理每一个批改框
+        # 6. 画批改标记
         # -------------------------------------------------
         for mark in marks:
 
@@ -137,14 +136,7 @@ def mark_image():
             except Exception:
                 continue
 
-            # -------------------------------------------------
-            # 支持三种坐标：
-            #
-            # 0~1
-            # 0~100
-            # 0~1000
-            # -------------------------------------------------
-
+            # 判断坐标范围
             max_value = max(
                 abs(ymin),
                 abs(xmin),
@@ -153,29 +145,27 @@ def mark_image():
             )
 
             if max_value <= 1:
-                # 0~1
+
                 x1 = int(xmin * w)
                 y1 = int(ymin * h)
                 x2 = int(xmax * w)
                 y2 = int(ymax * h)
 
             elif max_value <= 100:
-                # 0~100
-                x1 = int((xmin / 100) * w)
-                y1 = int((ymin / 100) * h)
-                x2 = int((xmax / 100) * w)
-                y2 = int((ymax / 100) * h)
+
+                x1 = int(xmin / 100 * w)
+                y1 = int(ymin / 100 * h)
+                x2 = int(xmax / 100 * w)
+                y2 = int(ymax / 100 * h)
 
             else:
-                # 0~1000
-                x1 = int((xmin / 1000) * w)
-                y1 = int((ymin / 1000) * h)
-                x2 = int((xmax / 1000) * w)
-                y2 = int((ymax / 1000) * h)
 
-            # -------------------------------------------------
-            # 防止越界
-            # -------------------------------------------------
+                x1 = int(xmin / 1000 * w)
+                y1 = int(ymin / 1000 * h)
+                x2 = int(xmax / 1000 * w)
+                y2 = int(ymax / 1000 * h)
+
+            # 边界保护
             x1 = max(0, min(w - 1, x1))
             y1 = max(0, min(h - 1, y1))
             x2 = max(0, min(w - 1, x2))
@@ -187,26 +177,29 @@ def mark_image():
             if y2 < y1:
                 y1, y2 = y2, y1
 
-            mark_type = mark.get("type", "circle")
+            mark_type = mark.get(
+                "type",
+                "circle"
+            )
 
             # -------------------------------------------------
-            # 画圈
+            # 圆圈
             # -------------------------------------------------
             if mark_type == "circle":
 
                 draw.ellipse(
                     [
-                        max(0, x1 - 5),
-                        max(0, y1 - 5),
-                        min(w - 1, x2 + 5),
-                        min(h - 1, y2 + 5)
+                        max(0, x1 - 6),
+                        max(0, y1 - 6),
+                        min(w - 1, x2 + 6),
+                        min(h - 1, y2 + 6)
                     ],
                     outline="red",
                     width=4
                 )
 
             # -------------------------------------------------
-            # 画叉
+            # 红叉
             # -------------------------------------------------
             elif mark_type == "cross":
 
@@ -223,9 +216,9 @@ def mark_image():
                 )
 
             # -------------------------------------------------
-            # 画框
+            # 红框
             # -------------------------------------------------
-            elif mark_type == "rectangle":
+            else:
 
                 draw.rectangle(
                     [x1, y1, x2, y2],
@@ -233,48 +226,41 @@ def mark_image():
                     width=4
                 )
 
-            # -------------------------------------------------
-            # 默认画圈
-            # -------------------------------------------------
-            else:
-
-                draw.ellipse(
-                    [
-                        max(0, x1 - 5),
-                        max(0, y1 - 5),
-                        min(w - 1, x2 + 5),
-                        min(h - 1, y2 + 5)
-                    ],
-                    outline="red",
-                    width=4
-                )
-
         # -------------------------------------------------
-        # 7. 保存 PNG
+        # 7. 保存图片
         # -------------------------------------------------
-        output = io.BytesIO()
-
-        img.save(
-            output,
-            format="PNG",
-            optimize=True
+        filename = (
+            str(uuid.uuid4())
+            + ".png"
         )
 
-        output.seek(0)
+        filepath = os.path.join(
+            IMAGE_DIR,
+            filename
+        )
+
+        img.save(
+            filepath,
+            format="PNG"
+        )
 
         # -------------------------------------------------
-        # 8. Base64
+        # 8. 生成公开 URL
         # -------------------------------------------------
-        image_base64 = base64.b64encode(
-            output.getvalue()
-        ).decode("utf-8")
+        host = request.host_url.rstrip("/")
+
+        image_url_result = (
+            host
+            + "/images/"
+            + filename
+        )
 
         # -------------------------------------------------
         # 9. 返回
         # -------------------------------------------------
         return jsonify({
             "success": True,
-            "marked_image_base64": image_base64,
+            "marked_image_url": image_url_result,
             "marks_count": len(marks),
             "image_width": w,
             "image_height": h
@@ -282,26 +268,17 @@ def mark_image():
 
     except Exception as e:
 
-        # -------------------------------------------------
-        # 最重要：
-        # 把真正的 Python 异常返回给 Dify
-        # -------------------------------------------------
-
-        error_detail = traceback.format_exc()
-
-        print(error_detail)
+        print(traceback.format_exc())
 
         return jsonify({
             "success": False,
             "error": str(e),
-            "traceback": error_detail
+            "traceback": traceback.format_exc()
         }), 500
 
 
-# ---------------------------------------------------------
-# 本地运行
-# ---------------------------------------------------------
 if __name__ == "__main__":
+
     app.run(
         host="0.0.0.0",
         port=5000
