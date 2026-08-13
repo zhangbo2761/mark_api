@@ -41,7 +41,7 @@ def _jitter(pt, amt=1.5):
 
 def draw_handwritten_check(draw, x1, y1, x2, y2):
     """
-    画绿色手写风格对勾
+    画红色大写风格对勾
     """
 
     w = max(10, x2 - x1)
@@ -51,18 +51,18 @@ def draw_handwritten_check(draw, x1, y1, x2, y2):
     cy = y1 + h * 0.5
 
     p1 = (
-        cx - w * 0.35,
-        cy
+        cx - w * 0.5,
+        cy -h * 0.1
     )
 
     p2 = (
-        cx - w * 0.05,
-        cy + h * 0.35
+        cx - w * 0.1,
+        cy + h * 0.5
     )
 
     p3 = (
-        cx + w * 0.45,
-        cy - h * 0.4
+        cx + w * 0.8,
+        cy - h * 0.6
     )
 
     pts1 = [
@@ -75,18 +75,18 @@ def draw_handwritten_check(draw, x1, y1, x2, y2):
         _jitter(p3)
     ]
 
-    # 正确答案使用绿色
+    # 正确答案使用红色
     draw.line(
         pts1,
-        fill=(0, 160, 0),
-        width=5,
+        fill=(220, 0, 0),
+        width=6,
         joint="curve"
     )
 
     draw.line(
         pts2,
-        fill=(0, 160, 0),
-        width=5,
+        fill=(0220, 0, 0),
+        width=6,
         joint="curve"
     )
 
