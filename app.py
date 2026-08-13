@@ -85,7 +85,7 @@ def draw_handwritten_check(draw, x1, y1, x2, y2):
 
     draw.line(
         pts2,
-        fill=(0220, 0, 0),
+        fill=(220, 0, 0),
         width=6,
         joint="curve"
     )
