@@ -158,11 +158,11 @@ def mark_image():
             # 你的 LLM 使用 0~1 坐标
             # =================================================
 
-            x1 = int(xmin * w)
-            y1 = int(ymin * h)
+            x1 = int(xmin /1000 * w)
+            y1 = int(ymin /1000 * h)
 
-            x2 = int(xmax * w)
-            y2 = int(ymax * h)
+            x2 = int(xmax /1000 * w)
+            y2 = int(ymax /1000 * h)
 
             # =================================================
             # 防止越界
@@ -197,10 +197,10 @@ def mark_image():
 
                 draw.ellipse(
                     [
-                        max(0, x1 - 5),
-                        max(0, y1 - 5),
-                        min(w - 1, x2 + 5),
-                        min(h - 1, y2 + 5)
+                        max(0, x1 - 9),
+                        max(0, y1 - 9),
+                        min(w - 1, x2 + 9),
+                        min(h - 1, y2 + 9)
                     ],
                     outline="red",
                     width=4
